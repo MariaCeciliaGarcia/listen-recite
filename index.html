@@ -60,7 +60,8 @@
         <h2 id="pTitle"></h2>
         <span id="pMeta" class="jg-muted"></span>
       </div>
-      <span class="bar-spacer"></span>
+      <button id="editBtn" class="jg-button secondary round nodrag app-only" type="button" aria-label="编辑材料" title="编辑材料"></button>
+      <span class="bar-spacer web-only"></span>
     </header>
 
     <div id="lyrics" class="lyrics" tabindex="-1" aria-live="off"></div>
@@ -93,7 +94,7 @@
   <!-- 添加弹窗 -->
   <dialog id="addDialog" class="jg-dialog jg-surface add-dialog">
     <form id="addForm" method="dialog" class="jg-stack" novalidate>
-      <h2 class="jg-heading">添加材料</h2>
+      <h2 id="addTitle" class="jg-heading">添加材料</h2>
       <div class="two">
         <label class="jg-field">
           <span class="jg-label">主题</span>
@@ -117,6 +118,7 @@
         <textarea id="fText" class="jg-input" rows="9" placeholder="Paste your English text here."></textarea>
       </label>
       <p id="fHint" class="jg-muted hint">&nbsp;</p>
+      <p id="fEditNote" class="jg-muted hint" hidden>只改主题或日期不会重新生成音频；改了材料或声音，会重新生成整条音频。</p>
       <div class="jg-row end">
         <button id="cancelBtn" class="jg-button secondary" type="button">取消</button>
         <button id="submitBtn" class="jg-button" type="submit" disabled>生成音频</button>

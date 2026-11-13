@@ -18,6 +18,7 @@ const ICON = {
   note: '<path d="M9 18V5.5l11-2V16"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
   lock: '<rect x="5" y="11" width="14" height="9.5" rx="2.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  edit: '<path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17z"/><path d="M14.5 7.5l3 3"/>',
   gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
   phone: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>',
 };
@@ -183,6 +184,7 @@ function rowEl(it) {
     meta = `${it.sentences.length} 句 · ${fmt(it.duration)} · ${voiceLabel(it.voice)}`;
   }
   if (it.status !== 'generating') {
+    actions += `<button class="jg-button secondary icon" data-act="edit" type="button" aria-label="编辑材料" title="编辑材料">${icon('edit')}</button>`;
     actions += `<button class="jg-button secondary icon" data-act="reveal" type="button" aria-label="在访达中显示音频" title="在访达中显示音频">${icon('folder')}</button>`;
     actions += `<button class="jg-button secondary icon" data-act="del" type="button" aria-label="删除" title="删除">${icon('trash')}</button>`;
   }
@@ -198,6 +200,7 @@ function rowEl(it) {
     e.stopPropagation();
     const act = btn.dataset.act;
     if (act === 'retry') backend.retry(it.id);
+    else if (act === 'edit') openEdit(it);
     else if (act === 'reveal') backend.reveal(it.id);
     else if (act === 'del') {
       if (btn.dataset.armed) { await removeItem(it); return; }
@@ -439,7 +442,13 @@ function renderVoiceSeg() {
   if (engineSel === 'google' && !hasGoogleKey) $('#fHint').textContent = '还没有设置 Google 密钥，请先到右上角“设置”里填写。';
 }
 const currentVoiceId = () => ENGINES[engineSel].voices[voiceIdx].id;
+let editing = null; // 正在编辑的条目 id；null 表示添加
+
 async function openAdd() {
+  editing = null;
+  $('#addTitle').textContent = '添加材料';
+  $('#submitBtn').textContent = '生成音频';
+  $('#fEditNote').hidden = true;
   hasGoogleKey = (await backend.settingsState()).hasGoogleKey;
   if (!hasGoogleKey && localStorage.getItem('lr.engine') !== 'google') engineSel = 'local';
   else if (hasGoogleKey && localStorage.getItem('lr.engine') !== 'local') engineSel = 'google';
@@ -452,16 +461,42 @@ async function openAdd() {
   dlg.showModal();
   $('#fText').focus();
 }
+
+// 把条目还原成可编辑的原文：有保存的原文就用原文，旧条目则由句子和译文拼回
+function rawOf(it) {
+  if (it.raw) return it.raw;
+  return it.sentences.map((s) => s.text + (s.translation ? '\n' + s.translation : '')).join('\n');
+}
+
+async function openEdit(it) {
+  hasGoogleKey = (await backend.settingsState()).hasGoogleKey;
+  editing = it.id;
+  engineSel = engineOfVoice(it.voice);
+  voiceIdx = Math.max(0, ENGINES[engineSel].voices.findIndex((v) => v.id === it.voice));
+  $('#addTitle').textContent = '编辑材料';
+  $('#submitBtn').textContent = '保存修改';
+  $('#fEditNote').hidden = false;
+  $('#fTitle').value = it.title;
+  $('#fDate').value = it.date;
+  $('#fText').value = rawOf(it);
+  $('#fHint').innerHTML = '&nbsp;';
+  renderVoiceSeg();
+  $('#submitBtn').disabled = false;
+  dlg.showModal();
+  $('#fText').focus();
+  const n = await backend.preview($('#fText').value);
+  $('#fHint').textContent = n ? `将朗读 ${n} 句英文。` : '没有找到可朗读的英文。';
+}
 $('#fEngine').addEventListener('click', (e) => {
   const b = e.target.closest('[data-e]');
   if (!b) return;
-  engineSel = b.dataset.e; localStorage.setItem('lr.engine', engineSel);
+  engineSel = b.dataset.e; if (!editing) localStorage.setItem('lr.engine', engineSel);
   $('#fHint').innerHTML = '&nbsp;'; renderVoiceSeg();
 });
 $('#fVoice').addEventListener('click', (e) => {
   const b = e.target.closest('[data-v]');
   if (!b) return;
-  voiceIdx = Number(b.dataset.v); localStorage.setItem('lr.voiceIdx', voiceIdx); renderVoiceSeg();
+  voiceIdx = Number(b.dataset.v); if (!editing) localStorage.setItem('lr.voiceIdx', voiceIdx); renderVoiceSeg();
 });
 $('#fText').addEventListener('input', () => {
   const has = $('#fText').value.trim().length > 0;
@@ -480,11 +515,18 @@ $('#addForm').addEventListener('submit', async (e) => {
   const text = $('#fText').value;
   if (!text.trim()) return;
   $('#submitBtn').disabled = true;
-  const r = await backend.add({ title: $('#fTitle').value, date: $('#fDate').value, text, voice: currentVoiceId() });
+  const payload = { title: $('#fTitle').value, date: $('#fDate').value, text, voice: currentVoiceId() };
+  const r = editing ? await backend.update({ id: editing, ...payload }) : await backend.add(payload);
   if (r.error) { $('#fHint').textContent = r.error; $('#submitBtn').disabled = false; return; }
+  const wasPlaying = !!(editing && cur && cur.id === editing && !$('#player').hidden);
   upsert(r.item);
+  if (editing && cur && cur.id === editing) {
+    // 正在播放的这条被修改：停掉旧音频；重新生成的要等生成完再点开，否则用新内容重新载入
+    audio.pause(); audio.removeAttribute('src'); audio.load(); cur = null; idx = -1;
+    if (!(wasPlaying && !r.regenerated)) closePlayer();
+  }
   dlg.close();
-  renderHome();
+  if (wasPlaying && !r.regenerated) openItem(r.item); else renderHome();
 });
 dlg.addEventListener('click', (e) => { if (e.target === dlg) dlg.close(); });
 
@@ -580,6 +622,8 @@ $('#settingsBtn').innerHTML = `${icon('gear')}设置`;
 $('#settingsBtn').onclick = openSettings;
 $('#backBtn').innerHTML = icon('back');
 $('#backBtn').onclick = closePlayer;
+$('#editBtn').innerHTML = icon('edit');
+$('#editBtn').onclick = () => cur && openEdit(cur);
 $('#prevBtn').innerHTML = icon('prev');
 $('#nextBtn').innerHTML = icon('next');
 $('#prevBtn').onclick = prevSentence;

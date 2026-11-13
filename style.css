@@ -171,3 +171,8 @@ body.jg-app { min-height: 0; height: 100vh; }
 .lock-card p { margin: 0; }
 .lock-card .err { min-height: 1.7em; font-size: 13px; }
 .phone-dialog .pass-row { display: grid; gap: 8px; }
+
+/* 编辑入口 */
+#fEditNote[hidden] { display: none; }
+body:not(.web) .web-only { display: none; }
+.web #editBtn { display: none !important; }
