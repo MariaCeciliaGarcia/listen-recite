@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; media-src 'self' file: blob: data:; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f3f6fb">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="听背">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <title>听背</title>
+  <link rel="stylesheet" href="glass.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="jg-app">
+
+  <!-- 首页：条目列表 -->
+  <section id="home" class="view">
+    <header class="jg-header bar drag">
+      <div class="brand">
+        <h1>听背</h1>
+        <span class="jg-muted">把材料变成能循环听的音频</span>
+      </div>
+      <button id="settingsBtn" class="jg-button secondary nodrag app-only" type="button"></button>
+      <button id="phoneBtn" class="jg-button secondary nodrag app-only" type="button"></button>
+      <button id="addBtn" class="jg-button nodrag app-only" type="button"></button>
+    </header>
+    <main id="homeMain" class="home-main"></main>
+    <div id="mini" class="jg-toolbar mini" hidden>
+      <button id="miniOpen" class="mini-open" type="button">
+        <span class="cover small" id="miniCover"></span>
+        <span class="mini-text"><b id="miniTitle"></b><small id="miniSub" class="jg-muted"></small></span>
+      </button>
+      <button id="miniPlay" class="jg-button secondary round" type="button" aria-label="播放/暂停"></button>
+    </div>
+  </section>
+
+  <!-- 手机网页版：口令解锁 -->
+  <section id="lock" class="view" hidden>
+    <main class="lock-main">
+      <form id="lockForm" class="jg-surface lock-card" novalidate>
+        <div class="cover" id="lockCover"></div>
+        <h2>输入访问口令</h2>
+        <p class="jg-muted">内容已加密。输入你在 Mac 上设置的口令才能收听，这台手机会记住它。</p>
+        <input id="lockPass" class="jg-input" type="password" autocomplete="current-password" placeholder="访问口令" aria-label="访问口令">
+        <p id="lockMsg" class="err" role="alert">&nbsp;</p>
+        <button id="lockBtn" class="jg-button" type="submit">解锁</button>
+      </form>
+    </main>
+  </section>
+
+  <!-- 播放页 -->
+  <section id="player" class="view" hidden>
+    <header class="jg-header bar drag">
+      <button id="backBtn" class="jg-button secondary round nodrag" type="button" aria-label="返回列表"></button>
+      <div class="player-title">
+        <h2 id="pTitle"></h2>
+        <span id="pMeta" class="jg-muted"></span>
+      </div>
+      <span class="bar-spacer"></span>
+    </header>
+
+    <div id="lyrics" class="lyrics" tabindex="-1" aria-live="off"></div>
+
+    <footer class="jg-toolbar controls">
+      <div class="seek">
+        <span id="tCur" class="time">0:00</span>
+        <input id="seek" class="range" type="range" min="0" max="1000" value="0" aria-label="播放进度">
+        <span id="tTotal" class="time">0:00</span>
+      </div>
+      <div class="buttons">
+        <div class="side left">
+          <button id="loopBtn" class="jg-button secondary pill" type="button"></button>
+        </div>
+        <div class="center">
+          <button id="prevBtn" class="jg-button secondary round" type="button" aria-label="上一句"></button>
+          <button id="playBtn" class="jg-button round big" type="button" aria-label="播放/暂停"></button>
+          <button id="nextBtn" class="jg-button secondary round" type="button" aria-label="下一句"></button>
+        </div>
+        <div class="side right">
+          <div class="speed-wrap">
+            <button id="speedBtn" class="jg-button secondary pill" type="button" aria-haspopup="true" aria-expanded="false"></button>
+            <div id="speedMenu" class="speed-menu jg-toolbar" role="menu" hidden></div>
+          </div>
+        </div>
+      </div>
+    </footer>
+  </section>
+
+  <!-- 添加弹窗 -->
+  <dialog id="addDialog" class="jg-dialog jg-surface add-dialog">
+    <form id="addForm" method="dialog" class="jg-stack" novalidate>
+      <h2 class="jg-heading">添加材料</h2>
+      <div class="two">
+        <label class="jg-field">
+          <span class="jg-label">主题</span>
+          <input id="fTitle" class="jg-input" type="text" maxlength="80" placeholder="例如：面试自我介绍">
+        </label>
+        <label class="jg-field">
+          <span class="jg-label">日期</span>
+          <input id="fDate" class="jg-input" type="date">
+        </label>
+      </div>
+      <div class="jg-field">
+        <span class="jg-label">发音方式</span>
+        <div id="fEngine" class="jg-segment" role="group" aria-label="发音方式"></div>
+      </div>
+      <div class="jg-field">
+        <span class="jg-label">声音</span>
+        <div id="fVoice" class="jg-segment" role="group" aria-label="声音"></div>
+      </div>
+      <label class="jg-field">
+        <span class="jg-label">材料（直接粘贴；中文行会当作译文显示，不会朗读）</span>
+        <textarea id="fText" class="jg-input" rows="9" placeholder="Paste your English text here."></textarea>
+      </label>
+      <p id="fHint" class="jg-muted hint">&nbsp;</p>
+      <div class="jg-row end">
+        <button id="cancelBtn" class="jg-button secondary" type="button">取消</button>
+        <button id="submitBtn" class="jg-button" type="submit" disabled>生成音频</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 设置弹窗 -->
+  <dialog id="settingsDialog" class="jg-dialog jg-surface phone-dialog app-only">
+    <div class="jg-stack">
+      <h2 class="jg-heading">设置</h2>
+      <form id="keyForm" class="jg-stack" novalidate>
+        <label class="jg-field">
+          <span class="jg-label">Google 云端语音密钥（API Key）</span>
+          <input id="gKey" class="jg-input" type="password" autocomplete="off" spellcheck="false" placeholder="粘贴后点“保存并测试”">
+        </label>
+        <p id="gStatus" class="jg-muted tip">&nbsp;</p>
+        <p class="jg-muted tip">密钥只保存在这台 Mac 的应用数据目录里，不会上传，也不会出现在手机网页中。选用 Google 声音时，材料文字会发送给 Google 合成语音，并可能产生费用。</p>
+        <div class="jg-row end">
+          <button id="gClear" class="jg-button secondary" type="button">删除密钥</button>
+          <button id="gClose" class="jg-button secondary" type="button">关闭</button>
+          <button id="gSave" class="jg-button" type="submit">保存并测试</button>
+        </div>
+      </form>
+    </div>
+  </dialog>
+
+  <!-- 手机收听弹窗 -->
+  <dialog id="phoneDialog" class="jg-dialog jg-surface phone-dialog app-only">
+    <div class="jg-stack">
+      <h2 class="jg-heading">手机收听</h2>
+      <div id="phoneBody" class="jg-stack"></div>
+    </div>
+  </dialog>
+
+  <audio id="audio" preload="auto" playsinline></audio>
+  <script src="app.js"></script>
+</body>
+</html>
