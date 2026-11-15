@@ -105,16 +105,30 @@
           <input id="fDate" class="jg-input" type="date">
         </label>
       </div>
-      <div class="jg-field">
-        <span class="jg-label">发音方式</span>
-        <div id="fEngine" class="jg-segment" role="group" aria-label="发音方式"></div>
+      <div id="fSourceWrap" class="jg-field">
+        <span class="jg-label">材料来源</span>
+        <div id="fSource" class="jg-segment" role="group" aria-label="材料来源"></div>
       </div>
-      <div class="jg-field">
-        <span class="jg-label">声音</span>
-        <div id="fVoice" class="jg-segment" role="group" aria-label="声音"></div>
+      <div id="fVoiceWrap" class="jg-stack">
+        <div class="jg-field">
+          <span class="jg-label">发音方式</span>
+          <div id="fEngine" class="jg-segment" role="group" aria-label="发音方式"></div>
+        </div>
+        <div class="jg-field">
+          <span class="jg-label">声音</span>
+          <div id="fVoice" class="jg-segment" role="group" aria-label="声音"></div>
+        </div>
       </div>
-      <label class="jg-field">
-        <span class="jg-label">材料（直接粘贴；中文行会当作译文显示，不会朗读）</span>
+      <div id="fImportWrap" class="jg-field" hidden>
+        <span class="jg-label">音频或视频文件</span>
+        <div id="fDrop" class="dropzone" tabindex="0" role="button" aria-label="选择或拖入音频、视频文件">
+          <span id="fDropIcon" class="drop-icon"></span>
+          <span id="fDropMain" class="drop-main">把文件拖到这里，或点击选择</span>
+          <span id="fDropSub" class="jg-muted drop-sub">支持 mp3、m4a、wav、mp4、mov、mkv、webm、flv 等常见格式</span>
+        </div>
+      </div>
+      <label id="fTextWrap" class="jg-field">
+        <span id="fTextLabel" class="jg-label">材料（直接粘贴；中文行会当作译文显示，不会朗读）</span>
         <textarea id="fText" class="jg-input" rows="9" placeholder="Paste your English text here."></textarea>
       </label>
       <p id="fHint" class="jg-muted hint">&nbsp;</p>

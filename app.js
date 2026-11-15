@@ -21,6 +21,8 @@ const ICON = {
   edit: '<path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17z"/><path d="M14.5 7.5l3 3"/>',
   gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
   phone: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>',
+  upload: '<path d="M12 16V5"/><path d="M7.5 9.5 12 5l4.5 4.5"/><path d="M4.5 15v3.5a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V15"/>',
+  film: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M10 9.2v5.6l4.6-2.8z"/>',
 };
 const FILLED = new Set(['play', 'pause', 'prev', 'next']);
 const icon = (name) => `<svg class="jg-icon${FILLED.has(name) ? ' fill' : ''}" viewBox="0 0 24 24" aria-hidden="true">${ICON[name]}</svg>`;
@@ -43,6 +45,7 @@ const voiceLabel = (id) => {
   const v = [...ENGINES.local.voices, ...ENGINES.google.voices].find((x) => x.id === id);
   return (v ? v.label : '美音 女声') + (engineOfVoice(id) === 'google' ? ' · Google' : '');
 };
+const sourceLabel = (it) => (it.source === 'import' ? '导入的音频' : voiceLabel(it.voice));
 const SPEEDS = [0.5, 0.6, 0.75, 0.9, 1, 1.25, 1.5];
 const LOOPS = {
   all: { label: '整篇循环', icon: 'repeat' },
@@ -148,9 +151,9 @@ function renderHome() {
     main.innerHTML = `<div class="empty">
       <div class="cover" style="${coverStyle('empty')}">${icon('note')}</div>
       <h2>还没有材料</h2>
-      <p>添加一段英语材料，它会变成一条可以循环听的音频，听着就能背下来。</p>
+      <p>添加一段英语材料，或导入一段演讲、发言的音频/视频，它会变成逐句可循环的播放页，听着就能背下来。</p>
       <button class="jg-button" id="emptyAdd" type="button">${icon('plus')}添加第一条</button></div>`;
-    $('#emptyAdd').onclick = openAdd;
+    $('#emptyAdd').onclick = () => openAdd();
     return;
   }
   const sorted = [...items].sort((a, b) => (b.date > a.date ? 1 : b.date < a.date ? -1 : b.createdAt - a.createdAt));
@@ -175,17 +178,19 @@ function rowEl(it) {
   if (it.status === 'generating') {
     const p = it.progress || { done: 0, total: it.sentences.length, text: '' };
     meta = p.text || `正在生成 ${p.done}/${p.total} 句`;
+    if (it.source === 'import') actions = `<button class="jg-button secondary" data-act="cancel" type="button">取消导入</button>`;
     const pct = p.total ? Math.round((p.done / p.total) * 100) : 0;
     extra = `<div class="jg-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><span style="width:${pct}%"></span></div>`;
   } else if (it.status === 'error') {
-    meta = `<span class="err">生成失败：${esc(it.error || '未知错误')}</span>`;
-    actions = `<button class="jg-button secondary" data-act="retry" type="button">${icon('refresh')}重新生成</button>`;
+    meta = `<span class="err">${it.source === 'import' ? '导入失败' : '生成失败'}：${esc(it.error || '未知错误')}</span>`;
+    actions = `<button class="jg-button secondary" data-act="retry" type="button">${icon('refresh')}${it.source === 'import' ? '重新识别' : '重新生成'}</button>`;
   } else {
-    meta = `${it.sentences.length} 句 · ${fmt(it.duration)} · ${voiceLabel(it.voice)}`;
+    meta = `${it.sentences.length} 句 · ${fmt(it.duration)} · ${sourceLabel(it)}`;
   }
   if (it.status !== 'generating') {
-    actions += `<button class="jg-button secondary icon" data-act="edit" type="button" aria-label="编辑材料" title="编辑材料">${icon('edit')}</button>`;
-    actions += `<button class="jg-button secondary icon" data-act="reveal" type="button" aria-label="在访达中显示音频" title="在访达中显示音频">${icon('folder')}</button>`;
+    const noAudio = it.status === 'error' && it.source === 'import'; // 导入失败的条目还没有可编辑的文字和音频
+    if (!noAudio) actions += `<button class="jg-button secondary icon" data-act="edit" type="button" aria-label="编辑材料" title="编辑材料">${icon('edit')}</button>`;
+    if (!noAudio) actions += `<button class="jg-button secondary icon" data-act="reveal" type="button" aria-label="在访达中显示音频" title="在访达中显示音频">${icon('folder')}</button>`;
     actions += `<button class="jg-button secondary icon" data-act="del" type="button" aria-label="删除" title="删除">${icon('trash')}</button>`;
   }
   const playing = cur && cur.id === it.id && !audio.paused;
@@ -200,6 +205,7 @@ function rowEl(it) {
     e.stopPropagation();
     const act = btn.dataset.act;
     if (act === 'retry') backend.retry(it.id);
+    else if (act === 'cancel') { if (await backend.cancel(it.id)) { items = items.filter((x) => x.id !== it.id); renderHome(); } }
     else if (act === 'edit') openEdit(it);
     else if (act === 'reveal') backend.reveal(it.id);
     else if (act === 'del') {
@@ -242,9 +248,13 @@ function updateMini() {
 
 // ---------- 播放页 ----------
 const lyrics = $('#lyrics');
-const regionStart = (i) => (i === 0 ? 0 : cur.sentences[i].start);
-const endOf = (i) => (i + 1 < cur.sentences.length ? cur.sentences[i + 1].start : (cur.duration || audio.duration || 0));
-const seekPos = (i) => (i === 0 ? 0 : Math.max(0, cur.sentences[i].start - 0.05));
+const seekPos = (i) => Math.max(0, cur.sentences[i].start - 0.05);
+const regionStart = (i) => (i === 0 ? seekPos(0) : cur.sentences[i].start);
+function endOf(i) {
+  const next = i + 1 < cur.sentences.length ? cur.sentences[i + 1].start : (cur.duration || audio.duration || 0);
+  // 导入的演讲：句间可能隔着很长的停顿或掌声，单句循环只多留 0.5 秒，不把整段空白都循环进去
+  return cur.source === 'import' ? Math.min(next, cur.sentences[i].end + 0.5) : next;
+}
 function indexAt(t) {
   const s = cur.sentences;
   for (let i = s.length - 1; i > 0; i--) if (t >= s[i].start - 0.06) return i;
@@ -290,7 +300,7 @@ async function openItem(it) {
     registerMediaSession();
   }
   $('#pTitle').textContent = cur.title;
-  $('#pMeta').textContent = `${dateLabel(cur.date)} · ${voiceLabel(cur.voice)}`;
+  $('#pMeta').textContent = `${dateLabel(cur.date)} · ${sourceLabel(cur)}`;
   $('#home').hidden = true;
   $('#player').hidden = false;
   applySettings();
@@ -300,7 +310,7 @@ async function openItem(it) {
     $('#pMeta').textContent = '正在解密…';
     try { audio.src = await backend.audioSrc(it); }
     catch (e) { $('#pMeta').textContent = '加载失败：' + e.message; return; }
-    $('#pMeta').textContent = `${dateLabel(cur.date)} · ${voiceLabel(cur.voice)}`;
+    $('#pMeta').textContent = `${dateLabel(cur.date)} · ${sourceLabel(cur)}`;
     applySettings();
   }
   if (!same || audio.paused) audio.play().catch(() => {});
@@ -433,6 +443,13 @@ let engineSel = localStorage.getItem('lr.engine') === 'local' ? 'local' : 'googl
 let voiceIdx = Number(localStorage.getItem('lr.voiceIdx')) || 0;
 let hasGoogleKey = false;
 let previewTimer = null;
+let addMode = 'text';   // 'text' 自己输入文字 | 'import' 导入音频/视频
+let picked = null;      // 导入模式下选好的文件 { path, name }
+let editing = null;     // 正在编辑的条目 id；null 表示添加
+let editingOrig = 0;    // 编辑导入条目时，原来的句数
+const SOURCES = { text: '输入文字', import: '导入音频或视频' };
+const CJK_RE = /[\u3000-\u303f\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uff00-\uffef]/;
+const NBSP_HINT = '&nbsp;';
 
 function renderVoiceSeg() {
   $('#fEngine').innerHTML = Object.entries(ENGINES).map(([k, e]) => `<button class="jg-button" type="button" data-e="${k}" aria-pressed="${k === engineSel}">${e.label}</button>`).join('');
@@ -442,12 +459,49 @@ function renderVoiceSeg() {
   if (engineSel === 'google' && !hasGoogleKey) $('#fHint').textContent = '还没有设置 Google 密钥，请先到右上角“设置”里填写。';
 }
 const currentVoiceId = () => ENGINES[engineSel].voices[voiceIdx].id;
-let editing = null; // 正在编辑的条目 id；null 表示添加
 
-async function openAdd() {
-  editing = null;
+// 导入的条目按“一行一句”编辑，不重新切句；这里只数行数
+function countEditLines(text) {
+  return text.split('\n').filter((l) => { const m = l.match(CJK_RE); return /[A-Za-z]/.test(m ? l.slice(0, m.index) : l); }).length;
+}
+
+function renderDrop() {
+  const box = $('#fDrop');
+  box.classList.toggle('has-file', !!picked);
+  $('#fDropIcon').innerHTML = icon(picked ? 'film' : 'upload');
+  $('#fDropMain').textContent = picked ? picked.name : '把文件拖到这里，或点击选择';
+  $('#fDropSub').textContent = picked ? '点击或拖入新文件可以更换' : '支持 mp3、m4a、wav、mp4、mov、mkv、webm、flv 等常见格式（视频只取声音）';
+}
+
+// 按当前模式显示/隐藏各块，并设置按钮文字
+function applyMode() {
+  const imp = addMode === 'import';
+  $('#fSource').innerHTML = Object.entries(SOURCES).map(([k, l]) => `<button class="jg-button" type="button" data-s="${k}" aria-pressed="${k === addMode}">${l}</button>`).join('');
+  $('#fSourceWrap').hidden = !!editing;
+  $('#fVoiceWrap').hidden = imp;
+  $('#fImportWrap').hidden = !(imp && !editing);
+  $('#fTextWrap').hidden = imp && !editing;
+  $('#fTextLabel').textContent = imp
+    ? '识别出的文字（每行一句；可以改字，也可以在句子下面加一行中文当译文）'
+    : '材料（直接粘贴；中文行会当作译文显示，不会朗读）';
+  $('#fEditNote').textContent = imp
+    ? '导入的音频不会重新识别：改文字和译文不影响播放位置。每句的位置是固定的，所以只能改字，不能增删句子。'
+    : '只改主题或日期不会重新生成音频；改了材料或声音，会重新生成整条音频。';
+  $('#submitBtn').textContent = editing ? '保存修改' : imp ? '导入并切句' : '生成音频';
+  $('#fTitle').placeholder = imp && picked ? picked.name.replace(/\.[^.]{1,5}$/, '') : '例如：面试自我介绍';
+  renderDrop();
+}
+
+function refreshSubmit() {
+  if (addMode === 'import' && !editing) $('#submitBtn').disabled = !picked;
+  else $('#submitBtn').disabled = !$('#fText').value.trim();
+}
+
+async function openAdd(file) {
+  editing = null; editingOrig = 0;
+  addMode = file && file.path ? 'import' : 'text';
+  picked = file && file.path ? file : null;
   $('#addTitle').textContent = '添加材料';
-  $('#submitBtn').textContent = '生成音频';
   $('#fEditNote').hidden = true;
   hasGoogleKey = (await backend.settingsState()).hasGoogleKey;
   if (!hasGoogleKey && localStorage.getItem('lr.engine') !== 'google') engineSel = 'local';
@@ -455,11 +509,12 @@ async function openAdd() {
   $('#fTitle').value = '';
   $('#fDate').value = todayStr();
   $('#fText').value = '';
-  $('#fHint').innerHTML = '&nbsp;';
-  $('#submitBtn').disabled = true;
+  $('#fHint').innerHTML = NBSP_HINT;
   renderVoiceSeg();
-  dlg.showModal();
-  $('#fText').focus();
+  applyMode();
+  refreshSubmit();
+  if (!dlg.open) dlg.showModal();
+  if (addMode === 'text') $('#fText').focus();
 }
 
 // 把条目还原成可编辑的原文：有保存的原文就用原文，旧条目则由句子和译文拼回
@@ -471,27 +526,49 @@ function rawOf(it) {
 async function openEdit(it) {
   hasGoogleKey = (await backend.settingsState()).hasGoogleKey;
   editing = it.id;
-  engineSel = engineOfVoice(it.voice);
-  voiceIdx = Math.max(0, ENGINES[engineSel].voices.findIndex((v) => v.id === it.voice));
+  addMode = it.source === 'import' ? 'import' : 'text';
+  picked = null;
+  editingOrig = it.sentences.length;
+  if (addMode === 'text') {
+    engineSel = engineOfVoice(it.voice);
+    voiceIdx = Math.max(0, ENGINES[engineSel].voices.findIndex((v) => v.id === it.voice));
+  }
   $('#addTitle').textContent = '编辑材料';
-  $('#submitBtn').textContent = '保存修改';
   $('#fEditNote').hidden = false;
   $('#fTitle').value = it.title;
   $('#fDate').value = it.date;
   $('#fText').value = rawOf(it);
-  $('#fHint').innerHTML = '&nbsp;';
+  $('#fHint').innerHTML = NBSP_HINT;
   renderVoiceSeg();
+  applyMode();
   $('#submitBtn').disabled = false;
   dlg.showModal();
   $('#fText').focus();
+  if (addMode === 'import') { updateEditHint(); return; }
   const n = await backend.preview($('#fText').value);
   $('#fHint').textContent = n ? `将朗读 ${n} 句英文。` : '没有找到可朗读的英文。';
 }
+
+function updateEditHint() {
+  const n = countEditLines($('#fText').value);
+  const ok = n === editingOrig;
+  $('#fHint').textContent = ok ? `共 ${n} 句，和原来一致。` : `现在是 ${n} 句，原来是 ${editingOrig} 句：请保持每行一句，不要增删句子。`;
+  $('#submitBtn').disabled = !ok;
+}
+
+$('#fSource').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-s]');
+  if (!b || editing) return;
+  addMode = b.dataset.s;
+  $('#fHint').innerHTML = NBSP_HINT;
+  applyMode(); refreshSubmit();
+  if (addMode === 'text') { renderVoiceSeg(); $('#fText').dispatchEvent(new Event('input')); }
+});
 $('#fEngine').addEventListener('click', (e) => {
   const b = e.target.closest('[data-e]');
   if (!b) return;
   engineSel = b.dataset.e; if (!editing) localStorage.setItem('lr.engine', engineSel);
-  $('#fHint').innerHTML = '&nbsp;'; renderVoiceSeg();
+  $('#fHint').innerHTML = NBSP_HINT; renderVoiceSeg();
 });
 $('#fVoice').addEventListener('click', (e) => {
   const b = e.target.closest('[data-v]');
@@ -499,23 +576,64 @@ $('#fVoice').addEventListener('click', (e) => {
   voiceIdx = Number(b.dataset.v); if (!editing) localStorage.setItem('lr.voiceIdx', voiceIdx); renderVoiceSeg();
 });
 $('#fText').addEventListener('input', () => {
+  if (editing && addMode === 'import') { updateEditHint(); return; }
   const has = $('#fText').value.trim().length > 0;
   $('#submitBtn').disabled = !has;
   clearTimeout(previewTimer);
   previewTimer = setTimeout(async () => {
-    if (!has) { $('#fHint').innerHTML = '&nbsp;'; return; }
+    if (!has) { $('#fHint').innerHTML = NBSP_HINT; return; }
     const n = await backend.preview($('#fText').value);
     $('#fHint').textContent = n ? `将朗读 ${n} 句英文。` : '没有找到可朗读的英文。';
     $('#submitBtn').disabled = !n;
   }, 250);
 });
+
+// 选择文件：点击弹出系统选择窗口，或把文件拖进来
+function setPicked(f) {
+  picked = f;
+  $('#fHint').innerHTML = f ? '识别在这台 Mac 上完成，不联网，不会上传。首次使用会下载约 80MB 的识别模型。' : NBSP_HINT;
+  applyMode(); refreshSubmit();
+}
+$('#fDrop').addEventListener('click', async () => { const f = await backend.pickMedia(); if (f) setPicked(f); });
+$('#fDrop').addEventListener('keydown', async (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const f = await backend.pickMedia(); if (f) setPicked(f); } });
+$('#fDrop').addEventListener('dragover', (e) => { e.preventDefault(); $('#fDrop').classList.add('over'); });
+$('#fDrop').addEventListener('dragleave', () => $('#fDrop').classList.remove('over'));
+$('#fDrop').addEventListener('drop', (e) => {
+  e.preventDefault(); e.stopPropagation(); $('#fDrop').classList.remove('over');
+  const f = e.dataTransfer.files[0];
+  const p = f && backend.pathForFile(f);
+  if (p) setPicked({ path: p, name: f.name });
+});
+// 在窗口任何位置拖入文件：直接打开“导入”（默认行为是用窗口打开该文件，必须拦掉）
+if (IS_APP) {
+  document.addEventListener('dragover', (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) e.preventDefault(); });
+  document.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    if (sdlg.open || pdlg.open || (dlg.open && editing)) return;
+    const f = e.dataTransfer.files[0];
+    const p = f && backend.pathForFile(f);
+    if (!p) return;
+    if (dlg.open) { addMode = 'import'; setPicked({ path: p, name: f.name }); }
+    else await openAdd({ path: p, name: f.name });
+  });
+}
+
 $('#cancelBtn').onclick = () => dlg.close();
 $('#addForm').addEventListener('submit', async (e) => {
   e.preventDefault();
+  if (addMode === 'import' && !editing) {
+    if (!picked) return;
+    $('#submitBtn').disabled = true;
+    const r = await backend.addImport({ title: $('#fTitle').value, date: $('#fDate').value, filePath: picked.path });
+    if (r.error) { $('#fHint').textContent = r.error; $('#submitBtn').disabled = false; return; }
+    upsert(r.item);
+    dlg.close(); renderHome();
+    return;
+  }
   const text = $('#fText').value;
   if (!text.trim()) return;
   $('#submitBtn').disabled = true;
-  const payload = { title: $('#fTitle').value, date: $('#fDate').value, text, voice: currentVoiceId() };
+  const payload = { title: $('#fTitle').value, date: $('#fDate').value, text, voice: addMode === 'import' ? '' : currentVoiceId() };
   const r = editing ? await backend.update({ id: editing, ...payload }) : await backend.add(payload);
   if (r.error) { $('#fHint').textContent = r.error; $('#submitBtn').disabled = false; return; }
   const wasPlaying = !!(editing && cur && cur.id === editing && !$('#player').hidden);
@@ -615,7 +733,7 @@ pdlg.addEventListener('click', (e) => { if (e.target === pdlg) pdlg.close(); });
 
 // ---------- 事件绑定 ----------
 $('#addBtn').innerHTML = `${icon('plus')}添加`;
-$('#addBtn').onclick = openAdd;
+$('#addBtn').onclick = () => openAdd();
 $('#phoneBtn').innerHTML = `${icon('phone')}手机收听`;
 $('#phoneBtn').onclick = openPhone;
 $('#settingsBtn').innerHTML = `${icon('gear')}设置`;
