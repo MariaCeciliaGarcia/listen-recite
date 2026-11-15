@@ -186,6 +186,10 @@ function rowEl(it) {
     actions = `<button class="jg-button secondary" data-act="retry" type="button">${icon('refresh')}${it.source === 'import' ? '重新识别' : '重新生成'}</button>`;
   } else {
     meta = `${it.sentences.length} 句 · ${fmt(it.duration)} · ${sourceLabel(it)}`;
+    if (it.source === 'import' && it.match != null) {
+      const pct = Math.round(it.match * 100);
+      meta += pct >= 85 ? ` · 与原文吻合 ${pct}%` : ` · <span class="err">与原文只吻合 ${pct}%，个别句子的位置可能不准</span>`;
+    }
   }
   if (it.status !== 'generating') {
     const noAudio = it.status === 'error' && it.source === 'import'; // 导入失败的条目还没有可编辑的文字和音频
@@ -480,16 +484,28 @@ function applyMode() {
   $('#fSourceWrap').hidden = !!editing;
   $('#fVoiceWrap').hidden = imp;
   $('#fImportWrap').hidden = !(imp && !editing);
-  $('#fTextWrap').hidden = imp && !editing;
-  $('#fTextLabel').textContent = imp
-    ? '识别出的文字（每行一句；可以改字，也可以在句子下面加一行中文当译文）'
-    : '材料（直接粘贴；中文行会当作译文显示，不会朗读）';
+  $('#fTextWrap').hidden = false;
+  const importNew = imp && !editing;
+  $('#fText').classList.toggle('small', importNew);
+  $('#fText').placeholder = importNew
+    ? '有这段音频的文字稿就粘贴在这里（可以不填）。填了的话，歌词直接用你的原文，识别只用来对时间，文字不会出错。中文行会当作译文。'
+    : 'Paste your English text here.';
+  $('#fTextLabel').textContent = importNew
+    ? '原文（可选）'
+    : imp
+      ? '文字（每行一句；可以改字，也可以在句子下面加一行中文当译文）'
+      : '材料（直接粘贴；中文行会当作译文显示，不会朗读）';
   $('#fEditNote').textContent = imp
     ? '导入的音频不会重新识别：改文字和译文不影响播放位置。每句的位置是固定的，所以只能改字，不能增删句子。'
     : '只改主题或日期不会重新生成音频；改了材料或声音，会重新生成整条音频。';
   $('#submitBtn').textContent = editing ? '保存修改' : imp ? '导入并切句' : '生成音频';
   $('#fTitle').placeholder = imp && picked ? picked.name.replace(/\.[^.]{1,5}$/, '') : '例如：面试自我介绍';
   renderDrop();
+}
+
+function importHint() {
+  if (!picked) return NBSP_HINT;
+  return $('#fText').value.trim() ? '' : '识别在这台 Mac 上完成，不联网，不会上传。首次使用会下载约 80MB 的识别模型。';
 }
 
 function refreshSubmit() {
@@ -577,6 +593,18 @@ $('#fVoice').addEventListener('click', (e) => {
 });
 $('#fText').addEventListener('input', () => {
   if (editing && addMode === 'import') { updateEditHint(); return; }
+  if (addMode === 'import') {
+    // 导入新文件时，原文是可选的：不填就用识别出的文字
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(async () => {
+      const t = $('#fText').value;
+      if (!t.trim()) { $('#fHint').innerHTML = importHint() || NBSP_HINT; return; }
+      const n = await backend.preview(t);
+      $('#fHint').textContent = n ? `将按你的原文显示 ${n} 句，并用识别结果来对时间。` : '没有在原文里找到英文内容。';
+      $('#submitBtn').disabled = !picked || !n;
+    }, 250);
+    return;
+  }
   const has = $('#fText').value.trim().length > 0;
   $('#submitBtn').disabled = !has;
   clearTimeout(previewTimer);
@@ -591,8 +619,9 @@ $('#fText').addEventListener('input', () => {
 // 选择文件：点击弹出系统选择窗口，或把文件拖进来
 function setPicked(f) {
   picked = f;
-  $('#fHint').innerHTML = f ? '识别在这台 Mac 上完成，不联网，不会上传。首次使用会下载约 80MB 的识别模型。' : NBSP_HINT;
+  $('#fHint').innerHTML = NBSP_HINT;
   applyMode(); refreshSubmit();
+  $('#fText').dispatchEvent(new Event('input'));
 }
 $('#fDrop').addEventListener('click', async () => { const f = await backend.pickMedia(); if (f) setPicked(f); });
 $('#fDrop').addEventListener('keydown', async (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); const f = await backend.pickMedia(); if (f) setPicked(f); } });
@@ -624,7 +653,7 @@ $('#addForm').addEventListener('submit', async (e) => {
   if (addMode === 'import' && !editing) {
     if (!picked) return;
     $('#submitBtn').disabled = true;
-    const r = await backend.addImport({ title: $('#fTitle').value, date: $('#fDate').value, filePath: picked.path });
+    const r = await backend.addImport({ title: $('#fTitle').value, date: $('#fDate').value, filePath: picked.path, text: $('#fText').value });
     if (r.error) { $('#fHint').textContent = r.error; $('#submitBtn').disabled = false; return; }
     upsert(r.item);
     dlg.close(); renderHome();
