@@ -30,21 +30,17 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 const fmt = (sec) => { sec = Math.max(0, Math.round(sec || 0)); return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0'); };
 const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
-const ENGINES = {
-  local: { label: '本地（免费，离线）', voices: [
-    { id: 'af_heart', label: '美音 女声' }, { id: 'am_michael', label: '美音 男声' },
-    { id: 'bf_emma', label: '英音 女声' }, { id: 'bm_george', label: '英音 男声' },
-  ] },
-  google: { label: 'Google 云端（更自然）', voices: [
-    { id: 'en-US-Chirp3-HD-Aoede', label: '美音 女声' }, { id: 'en-US-Chirp3-HD-Charon', label: '美音 男声' },
-    { id: 'en-GB-Chirp3-HD-Aoede', label: '英音 女声' }, { id: 'en-GB-Chirp3-HD-Fenrir', label: '英音 男声' },
-  ] },
-};
-const engineOfVoice = (id) => (ENGINES.google.voices.some((v) => v.id === id) ? 'google' : 'local');
-const voiceLabel = (id) => {
-  const v = [...ENGINES.local.voices, ...ENGINES.google.voices].find((x) => x.id === id);
-  return (v ? v.label : '美音 女声') + (engineOfVoice(id) === 'google' ? ' · Google' : '');
-};
+// 声音清单在 voices.js（桌面应用主进程共用）；window.VOICES 是它的接口
+const LANG_UI = { en: '英语', ja: '日语' };        // 入口、弹窗标题用
+const LANG_TEXT = { en: '英文', ja: '日文' };       // “将朗读 N 句日文”
+const itemLang = (it) => (it && it.lang === 'ja' ? 'ja' : 'en');
+function voiceLabel(id) {
+  const v = VOICES.findVoice(id);
+  if (!v) return '语音';
+  const g = VOICES.GENDER[v.gender];
+  if (v.engine === 'local') return `${v.region} ${g}`;
+  return `${v.name}（${v.region === '日语' ? '' : v.region}${g}）· Google`;
+}
 const sourceLabel = (it) => (it.source === 'import' ? '导入的音频' : voiceLabel(it.voice));
 const SPEEDS = [0.5, 0.6, 0.75, 0.9, 1, 1.25, 1.5];
 const LOOPS = {
@@ -109,6 +105,7 @@ const backend = window.api || {
   add: async () => ({ error: '手机版只能收听' }), preview: async () => 0, settingsState: async () => ({}),
 };
 let items = [];
+let curLang = localStorage.getItem('lr.lang') === 'ja' ? 'ja' : 'en'; // 首页当前停在哪个语言库
 let cur = null;     // 正在播放的条目
 let idx = 0;        // 当前高亮的句子
 let lock = 0;       // 单句循环时锁定的句子
@@ -138,8 +135,34 @@ function dateLabel(d) {
   return (String(Y) === t.slice(0, 4) ? '' : Y + '年') + M + '月' + D + '日';
 }
 
+// 语言切换条：按钮只建一次，之后只更新选中状态和条数（不重建，键盘焦点不会丢）
+function renderLangBar() {
+  const seg = $('#langSeg');
+  if (!seg.children.length) {
+    seg.innerHTML = Object.entries(LANG_UI).map(([k, l]) => `<button class="jg-button" type="button" data-l="${k}" aria-pressed="false">${l}<span class="cnt"></span></button>`).join('');
+  }
+  for (const b of seg.children) {
+    const l = b.dataset.l;
+    b.setAttribute('aria-pressed', String(l === curLang));
+    $('.cnt', b).textContent = items.filter((it) => itemLang(it) === l).length || '';
+  }
+}
+function setLang(l) {
+  if (l === curLang) return;
+  curLang = l; localStorage.setItem('lr.lang', l);
+  renderHome();
+  $('#homeMain').scrollTop = 0;
+}
+$('#langSeg').addEventListener('click', (e) => { const b = e.target.closest('[data-l]'); if (b) setLang(b.dataset.l); });
+
 function renderHome() {
   const main = $('#homeMain');
+  renderLangBar();
+  renderHomeList(main, items.filter((it) => itemLang(it) === curLang));
+}
+
+// shown：当前语言库里的条目
+function renderHomeList(main, shown) {
   if (!items.length && !IS_APP) {
     main.innerHTML = `<div class="empty">
       <div class="cover" style="${coverStyle('empty')}">${icon('note')}</div>
@@ -147,16 +170,25 @@ function renderHome() {
       <p>在 Mac 上的“听背”里添加材料并开启手机收听后，这里会自动出现。</p></div>`;
     return;
   }
-  if (!items.length) {
+  if (!shown.length && !IS_APP) {
     main.innerHTML = `<div class="empty">
-      <div class="cover" style="${coverStyle('empty')}">${icon('note')}</div>
-      <h2>还没有材料</h2>
-      <p>添加一段英语材料，或导入一段演讲、发言的音频/视频，它会变成逐句可循环的播放页，听着就能背下来。</p>
-      <button class="jg-button" id="emptyAdd" type="button">${icon('plus')}添加第一条</button></div>`;
+      <div class="cover" style="${coverStyle('empty-' + curLang)}">${icon('note')}</div>
+      <h2>${LANG_UI[curLang]}库里还没有材料</h2>
+      <p>在 Mac 上的“听背”里添加${LANG_UI[curLang]}材料后，这里会自动出现。</p></div>`;
+    return;
+  }
+  if (!shown.length) {
+    main.innerHTML = `<div class="empty">
+      <div class="cover" style="${coverStyle('empty-' + curLang)}">${icon('note')}</div>
+      <h2>${LANG_UI[curLang]}库里还没有材料</h2>
+      <p>${curLang === 'ja'
+        ? '添加一段日语材料，它会变成逐句可循环的播放页，听着就能背下来。'
+        : '添加一段英语材料，或导入一段演讲、发言的音频/视频，它会变成逐句可循环的播放页，听着就能背下来。'}</p>
+      <button class="jg-button" id="emptyAdd" type="button">${icon('plus')}添加第一条${LANG_UI[curLang]}材料</button></div>`;
     $('#emptyAdd').onclick = () => openAdd();
     return;
   }
-  const sorted = [...items].sort((a, b) => (b.date > a.date ? 1 : b.date < a.date ? -1 : b.createdAt - a.createdAt));
+  const sorted = [...shown].sort((a, b) => (b.date > a.date ? 1 : b.date < a.date ? -1 : b.createdAt - a.createdAt));
   const groups = new Map();
   for (const it of sorted) { if (!groups.has(it.date)) groups.set(it.date, []); groups.get(it.date).push(it); }
   main.innerHTML = '';
@@ -266,6 +298,7 @@ function indexAt(t) {
 }
 
 function buildLyrics() {
+  lyrics.lang = itemLang(cur);
   lyrics.innerHTML = cur.sentences.map((s, i) =>
     `<div class="line" data-i="${i}" role="button" tabindex="-1"><div class="en">${esc(s.text)}</div>${s.translation ? `<div class="zh">${esc(s.translation)}</div>` : ''}</div>`).join('');
 }
@@ -443,8 +476,9 @@ function closeSpeed() { $('#speedMenu').hidden = true; $('#speedBtn').setAttribu
 
 // ---------- 添加弹窗 ----------
 const dlg = $('#addDialog');
-let engineSel = localStorage.getItem('lr.engine') === 'local' ? 'local' : 'google'; // 默认云端；只有用户自己切到本地后才记住本地
-let voiceIdx = Number(localStorage.getItem('lr.voiceIdx')) || 0;
+let dlgLang = 'en';     // 弹窗里这条材料的语言：添加时跟随首页当前语言库，编辑时是条目自己的语言
+let voiceSel = '';      // 弹窗里选中的声音 id
+let voiceOrig = '';     // 编辑时原来的声音
 let hasGoogleKey = false;
 let previewTimer = null;
 let addMode = 'text';   // 'text' 自己输入文字 | 'import' 导入音频/视频
@@ -455,14 +489,97 @@ const SOURCES = { text: '输入文字', import: '导入音频或视频' };
 const CJK_RE = /[\u3000-\u303f\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uff00-\uffef]/;
 const NBSP_HINT = '&nbsp;';
 
-function renderVoiceSeg() {
-  $('#fEngine').innerHTML = Object.entries(ENGINES).map(([k, e]) => `<button class="jg-button" type="button" data-e="${k}" aria-pressed="${k === engineSel}">${e.label}</button>`).join('');
-  const vs = ENGINES[engineSel].voices;
-  if (voiceIdx >= vs.length) voiceIdx = 0;
-  $('#fVoice').innerHTML = vs.map((v, i) => `<button class="jg-button" type="button" data-v="${i}" aria-pressed="${i === voiceIdx}">${v.label}</button>`).join('');
-  if (engineSel === 'google' && !hasGoogleKey) $('#fHint').textContent = '还没有设置 Google 密钥，请先到右上角“设置”里填写。';
+// ---------- 声音下拉 ----------
+// “选过的声音排在最上面”：记录每个语言最近用过的声音（最近的在最前）；
+// 加入这个功能之前生成的条目用到的声音也算选过。
+const recentKey = (lang) => 'lr.recent.' + lang;
+function recentVoices(lang) {
+  let stored = [];
+  try { stored = JSON.parse(localStorage.getItem(recentKey(lang)) || '[]'); } catch { stored = []; }
+  const ids = VOICES.voicesFor(lang).map((v) => v.id);
+  const out = stored.filter((id, i) => ids.includes(id) && stored.indexOf(id) === i);
+  const old = items.filter((it) => itemLang(it) === lang && it.source !== 'import' && it.voice)
+    .sort((a, b) => b.createdAt - a.createdAt).map((it) => it.voice);
+  for (const id of old) if (ids.includes(id) && !out.includes(id)) out.push(id);
+  return out;
 }
-const currentVoiceId = () => ENGINES[engineSel].voices[voiceIdx].id;
+function noteVoiceUsed(lang, id) {
+  let stored = [];
+  try { stored = JSON.parse(localStorage.getItem(recentKey(lang)) || '[]'); } catch { stored = []; }
+  localStorage.setItem(recentKey(lang), JSON.stringify([id, ...stored.filter((x) => x !== id)].slice(0, 40)));
+}
+// 添加新材料时默认用最近用过的声音；没有云端密钥时英语默认选本地，不让一上来就报错
+function pickDefaultVoice(lang) {
+  const ok = (id) => hasGoogleKey || VOICES.engineOf(id) === 'local';
+  return recentVoices(lang).find(ok) || VOICES.defaultVoice(lang, hasGoogleKey);
+}
+
+function voiceParts(v) {
+  const g = VOICES.GENDER[v.gender];
+  if (v.engine === 'local') return { main: `${v.region}${g}`, sub: '本地离线，免费' };
+  return { main: v.name, sub: dlgLang === 'ja' ? `${g} · 云端` : `${v.region} · ${g} · 云端` };
+}
+function renderVoice() {
+  const v = VOICES.findVoice(voiceSel);
+  if (v) { const p = voiceParts(v); $('#fVoiceText').innerHTML = `<b>${esc(p.main)}</b><span class="voice-sub">${esc(p.sub)}</span>`; }
+  if (VOICES.engineOf(voiceSel) === 'google' && !hasGoogleKey) $('#fHint').textContent = '还没有设置 Google 密钥，请先到右上角“设置”里填写。';
+}
+function voiceOptHtml(v) {
+  const p = voiceParts(v);
+  const sel = v.id === voiceSel;
+  return `<button class="voice-opt" type="button" role="option" tabindex="-1" data-id="${esc(v.id)}" aria-selected="${sel}"><span class="vo-main">${esc(p.main)}</span><span class="vo-sub">${esc(p.sub)}</span>${sel ? icon('check') : '<span class="vo-gap"></span>'}</button>`;
+}
+function renderVoiceList() {
+  const all = VOICES.voicesFor(dlgLang);
+  const recent = recentVoices(dlgLang).map((id) => all.find((v) => v.id === id)).filter(Boolean);
+  const rest = all.filter((v) => !recent.includes(v));
+  let html = '';
+  if (recent.length) html += `<div class="voice-sec" role="presentation">最近使用</div>${recent.map(voiceOptHtml).join('')}`;
+  if (rest.length) html += `<div class="voice-sec" role="presentation">${recent.length ? '其他声音' : '全部声音'}</div>${rest.map(voiceOptHtml).join('')}`;
+  $('#fVoiceList').innerHTML = html;
+}
+function openVoiceList() {
+  renderVoiceList();
+  $('#fVoiceList').hidden = false;
+  $('#fVoiceBtn').setAttribute('aria-expanded', 'true');
+  const sel = $('#fVoiceList .voice-opt[aria-selected="true"]') || $('#fVoiceList .voice-opt');
+  if (sel) { $('#fVoiceList').scrollTop = 0; sel.focus({ preventScroll: true }); sel.scrollIntoView({ block: 'nearest' }); }
+}
+function closeVoiceList(focusBtn) {
+  if ($('#fVoiceList').hidden) return false;
+  $('#fVoiceList').hidden = true;
+  $('#fVoiceBtn').setAttribute('aria-expanded', 'false');
+  if (focusBtn) $('#fVoiceBtn').focus();
+  return true;
+}
+function chooseVoice(id) {
+  voiceSel = id;
+  $('#fHint').innerHTML = NBSP_HINT;
+  renderVoice();
+  closeVoiceList(true);
+  $('#fText').dispatchEvent(new Event('input')); // 刷新“将朗读 N 句”提示
+}
+$('#fVoiceBtn').addEventListener('click', () => ($('#fVoiceList').hidden ? openVoiceList() : closeVoiceList(true)));
+$('#fVoiceBtn').addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); if ($('#fVoiceList').hidden) openVoiceList(); }
+});
+$('#fVoiceList').addEventListener('click', (e) => { const o = e.target.closest('.voice-opt'); if (o) chooseVoice(o.dataset.id); });
+$('#fVoiceList').addEventListener('keydown', (e) => {
+  const opts = [...$('#fVoiceList').querySelectorAll('.voice-opt')];
+  const i = opts.indexOf(document.activeElement);
+  const go = (j) => { e.preventDefault(); const o = opts[Math.max(0, Math.min(opts.length - 1, j))]; if (o) { o.focus({ preventScroll: true }); o.scrollIntoView({ block: 'nearest' }); } };
+  if (e.key === 'ArrowDown') go(i + 1);
+  else if (e.key === 'ArrowUp') go(i - 1);
+  else if (e.key === 'Home') go(0);
+  else if (e.key === 'End') go(opts.length - 1);
+  else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeVoiceList(true); }
+  else if (e.key === 'Tab') closeVoiceList(false);
+});
+// 点列表外面收起
+dlg.addEventListener('click', (e) => { if (!e.target.closest('.voice-pick')) closeVoiceList(false); });
+// 弹窗里按 Esc：列表开着时只收起列表，不关弹窗
+dlg.addEventListener('cancel', (e) => { if (!$('#fVoiceList').hidden) { e.preventDefault(); closeVoiceList(true); } });
+dlg.addEventListener('close', () => closeVoiceList(false));
 
 // 导入的条目按“一行一句”编辑，不重新切句；这里只数行数
 function countEditLines(text) {
@@ -481,25 +598,28 @@ function renderDrop() {
 function applyMode() {
   const imp = addMode === 'import';
   $('#fSource').innerHTML = Object.entries(SOURCES).map(([k, l]) => `<button class="jg-button" type="button" data-s="${k}" aria-pressed="${k === addMode}">${l}</button>`).join('');
-  $('#fSourceWrap').hidden = !!editing;
+  $('#fSourceWrap').hidden = !!editing || dlgLang === 'ja'; // 日语暂不支持导入音频/视频
   $('#fVoiceWrap').hidden = imp;
+  $('#fText').lang = dlgLang;
   $('#fImportWrap').hidden = !(imp && !editing);
   $('#fTextWrap').hidden = false;
   const importNew = imp && !editing;
   $('#fText').classList.toggle('small', importNew);
   $('#fText').placeholder = importNew
     ? '有这段音频的文字稿就粘贴在这里（可以不填）。填了的话，歌词直接用你的原文，识别只用来对时间，文字不会出错。中文行会当作译文。'
-    : 'Paste your English text here.';
+    : dlgLang === 'ja' ? '日本語の文章をここに貼り付けてください。' : 'Paste your English text here.';
   $('#fTextLabel').textContent = importNew
     ? '原文（可选）'
     : imp
       ? '文字（每行一句；可以改字，也可以在句子下面加一行中文当译文）'
-      : '材料（直接粘贴；中文行会当作译文显示，不会朗读）';
+      : dlgLang === 'ja'
+        ? '材料（直接粘贴；按“。！？”切句，每一行都会朗读）'
+        : '材料（直接粘贴；中文行会当作译文显示，不会朗读）';
   $('#fEditNote').textContent = imp
     ? '导入的音频不会重新识别：改文字和译文不影响播放位置。每句的位置是固定的，所以只能改字，不能增删句子。'
     : '只改主题或日期不会重新生成音频；改了材料或声音，会重新生成整条音频。';
   $('#submitBtn').textContent = editing ? '保存修改' : imp ? '导入并切句' : '生成音频';
-  $('#fTitle').placeholder = imp && picked ? picked.name.replace(/\.[^.]{1,5}$/, '') : '例如：面试自我介绍';
+  $('#fTitle').placeholder = imp && picked ? picked.name.replace(/\.[^.]{1,5}$/, '') : dlgLang === 'ja' ? '例如：自己紹介' : '例如：面试自我介绍';
   renderDrop();
 }
 
@@ -515,18 +635,19 @@ function refreshSubmit() {
 
 async function openAdd(file) {
   editing = null; editingOrig = 0;
+  dlgLang = curLang;
+  if (dlgLang === 'ja') file = null; // 日语暂不支持导入音频/视频
   addMode = file && file.path ? 'import' : 'text';
   picked = file && file.path ? file : null;
-  $('#addTitle').textContent = '添加材料';
+  $('#addTitle').textContent = `添加${LANG_UI[dlgLang]}材料`;
   $('#fEditNote').hidden = true;
   hasGoogleKey = (await backend.settingsState()).hasGoogleKey;
-  if (!hasGoogleKey && localStorage.getItem('lr.engine') !== 'google') engineSel = 'local';
-  else if (hasGoogleKey && localStorage.getItem('lr.engine') !== 'local') engineSel = 'google';
+  voiceSel = pickDefaultVoice(dlgLang); voiceOrig = '';
   $('#fTitle').value = '';
   $('#fDate').value = todayStr();
   $('#fText').value = '';
   $('#fHint').innerHTML = NBSP_HINT;
-  renderVoiceSeg();
+  renderVoice();
   applyMode();
   refreshSubmit();
   if (!dlg.open) dlg.showModal();
@@ -542,27 +663,26 @@ function rawOf(it) {
 async function openEdit(it) {
   hasGoogleKey = (await backend.settingsState()).hasGoogleKey;
   editing = it.id;
+  dlgLang = itemLang(it);
   addMode = it.source === 'import' ? 'import' : 'text';
   picked = null;
   editingOrig = it.sentences.length;
-  if (addMode === 'text') {
-    engineSel = engineOfVoice(it.voice);
-    voiceIdx = Math.max(0, ENGINES[engineSel].voices.findIndex((v) => v.id === it.voice));
-  }
-  $('#addTitle').textContent = '编辑材料';
+  voiceSel = voiceOrig = VOICES.findVoice(it.voice) ? it.voice : VOICES.defaultVoice(dlgLang, hasGoogleKey);
+  $('#addTitle').textContent = `编辑${LANG_UI[dlgLang]}材料`;
   $('#fEditNote').hidden = false;
   $('#fTitle').value = it.title;
   $('#fDate').value = it.date;
   $('#fText').value = rawOf(it);
   $('#fHint').innerHTML = NBSP_HINT;
-  renderVoiceSeg();
+  renderVoice();
   applyMode();
   $('#submitBtn').disabled = false;
   dlg.showModal();
   $('#fText').focus();
   if (addMode === 'import') { updateEditHint(); return; }
-  const n = await backend.preview($('#fText').value);
-  $('#fHint').textContent = n ? `将朗读 ${n} 句英文。` : '没有找到可朗读的英文。';
+  const n = await backend.preview($('#fText').value, dlgLang);
+  $('#fHint').textContent = n ? `将朗读 ${n} 句${LANG_TEXT[dlgLang]}。` : `没有找到可朗读的${LANG_TEXT[dlgLang]}。`;
+  renderVoice();
 }
 
 function updateEditHint() {
@@ -578,18 +698,7 @@ $('#fSource').addEventListener('click', (e) => {
   addMode = b.dataset.s;
   $('#fHint').innerHTML = NBSP_HINT;
   applyMode(); refreshSubmit();
-  if (addMode === 'text') { renderVoiceSeg(); $('#fText').dispatchEvent(new Event('input')); }
-});
-$('#fEngine').addEventListener('click', (e) => {
-  const b = e.target.closest('[data-e]');
-  if (!b) return;
-  engineSel = b.dataset.e; if (!editing) localStorage.setItem('lr.engine', engineSel);
-  $('#fHint').innerHTML = NBSP_HINT; renderVoiceSeg();
-});
-$('#fVoice').addEventListener('click', (e) => {
-  const b = e.target.closest('[data-v]');
-  if (!b) return;
-  voiceIdx = Number(b.dataset.v); if (!editing) localStorage.setItem('lr.voiceIdx', voiceIdx); renderVoiceSeg();
+  if (addMode === 'text') { renderVoice(); $('#fText').dispatchEvent(new Event('input')); }
 });
 $('#fText').addEventListener('input', () => {
   if (editing && addMode === 'import') { updateEditHint(); return; }
@@ -599,7 +708,7 @@ $('#fText').addEventListener('input', () => {
     previewTimer = setTimeout(async () => {
       const t = $('#fText').value;
       if (!t.trim()) { $('#fHint').innerHTML = importHint() || NBSP_HINT; return; }
-      const n = await backend.preview(t);
+      const n = await backend.preview(t, 'en');
       $('#fHint').textContent = n ? `将按你的原文显示 ${n} 句，并用识别结果来对时间。` : '没有在原文里找到英文内容。';
       $('#submitBtn').disabled = !picked || !n;
     }, 250);
@@ -610,9 +719,10 @@ $('#fText').addEventListener('input', () => {
   clearTimeout(previewTimer);
   previewTimer = setTimeout(async () => {
     if (!has) { $('#fHint').innerHTML = NBSP_HINT; return; }
-    const n = await backend.preview($('#fText').value);
-    $('#fHint').textContent = n ? `将朗读 ${n} 句英文。` : '没有找到可朗读的英文。';
+    const n = await backend.preview($('#fText').value, dlgLang);
+    $('#fHint').textContent = n ? `将朗读 ${n} 句${LANG_TEXT[dlgLang]}。` : `没有找到可朗读的${LANG_TEXT[dlgLang]}。`;
     $('#submitBtn').disabled = !n;
+    if (VOICES.engineOf(voiceSel) === 'google' && !hasGoogleKey) $('#fHint').textContent = '还没有设置 Google 密钥，请先到右上角“设置”里填写。';
   }, 250);
 });
 
@@ -639,6 +749,7 @@ if (IS_APP) {
   document.addEventListener('drop', async (e) => {
     e.preventDefault();
     if (sdlg.open || pdlg.open || (dlg.open && editing)) return;
+    if (dlg.open ? dlgLang === 'ja' : curLang === 'ja') return; // 日语暂不支持导入音频/视频
     const f = e.dataTransfer.files[0];
     const p = f && backend.pathForFile(f);
     if (!p) return;
@@ -662,9 +773,11 @@ $('#addForm').addEventListener('submit', async (e) => {
   const text = $('#fText').value;
   if (!text.trim()) return;
   $('#submitBtn').disabled = true;
-  const payload = { title: $('#fTitle').value, date: $('#fDate').value, text, voice: addMode === 'import' ? '' : currentVoiceId() };
+  const payload = { title: $('#fTitle').value, date: $('#fDate').value, text, voice: addMode === 'import' ? '' : voiceSel, lang: dlgLang };
   const r = editing ? await backend.update({ id: editing, ...payload }) : await backend.add(payload);
   if (r.error) { $('#fHint').textContent = r.error; $('#submitBtn').disabled = false; return; }
+  // 记下这次选的声音，下次排在最上面（编辑时只有换了声音才算“选过”）
+  if (addMode === 'text' && (!editing || voiceSel !== voiceOrig)) noteVoiceUsed(dlgLang, voiceSel);
   const wasPlaying = !!(editing && cur && cur.id === editing && !$('#player').hidden);
   upsert(r.item);
   if (editing && cur && cur.id === editing) {

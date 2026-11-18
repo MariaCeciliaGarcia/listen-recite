@@ -28,6 +28,9 @@
       <button id="phoneBtn" class="jg-button secondary nodrag app-only" type="button"></button>
       <button id="addBtn" class="jg-button nodrag app-only" type="button"></button>
     </header>
+    <nav class="lang-bar" aria-label="语言库">
+      <div id="langSeg" class="jg-segment" role="group" aria-label="语言库"></div>
+    </nav>
     <main id="homeMain" class="home-main"></main>
     <div id="mini" class="jg-toolbar mini" hidden>
       <button id="miniOpen" class="mini-open" type="button">
@@ -109,14 +112,14 @@
         <span class="jg-label">材料来源</span>
         <div id="fSource" class="jg-segment" role="group" aria-label="材料来源"></div>
       </div>
-      <div id="fVoiceWrap" class="jg-stack">
-        <div class="jg-field">
-          <span class="jg-label">发音方式</span>
-          <div id="fEngine" class="jg-segment" role="group" aria-label="发音方式"></div>
-        </div>
-        <div class="jg-field">
-          <span class="jg-label">声音</span>
-          <div id="fVoice" class="jg-segment" role="group" aria-label="声音"></div>
+      <div id="fVoiceWrap" class="jg-field">
+        <span id="fVoiceLabel" class="jg-label">声音</span>
+        <div class="voice-pick">
+          <button id="fVoiceBtn" class="jg-button secondary voice-btn" type="button" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="fVoiceLabel fVoiceText">
+            <span id="fVoiceText" class="voice-text"></span>
+            <svg class="jg-icon voice-caret" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+          <div id="fVoiceList" class="voice-list" role="listbox" aria-labelledby="fVoiceLabel" tabindex="-1" hidden></div>
         </div>
       </div>
       <div id="fImportWrap" class="jg-field" hidden>
@@ -169,6 +172,7 @@
   </dialog>
 
   <audio id="audio" preload="auto" playsinline></audio>
+  <script src="voices.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
